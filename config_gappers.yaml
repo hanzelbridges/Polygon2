@@ -1,0 +1,64 @@
+dimensions:
+  - date
+  - ticker
+metrics:
+  - prev_close
+  - open
+  - gap_pct
+  - high
+  - low
+  - open_to_high_pct
+  - open_to_low_pct
+  - open_to_close_pct
+  - close
+  - hod_time
+  - lod_time
+  - float_proxy  # shares_outstanding proxy (not true free float)
+  - shares_outstanding
+  - market_cap
+  # Premarket metrics (as-of gap day)
+  - pm_high
+  - pm_low
+  - pm_vwap
+  - pm_volume
+  - pm_trades
+  # Early session metrics from open
+  - ret_5m
+  - ret_15m
+  - ret_30m
+  - high_5m_pct
+  - low_5m_pct
+  - high_15m_pct
+  - low_15m_pct
+  - high_30m_pct
+  - low_30m_pct
+  - vol_5m
+  - vol_15m
+  - vol_30m
+  # Historical indicators (computed up to day before gap)
+  - atr14
+  - avg_vol_30d
+  - pos_52w
+  - dist_52w_high_pct
+  - sma200
+  - prevclose_to_sma200_pct
+  - open_to_sma200_pct
+  - gap_vs_atr
+  # Float rotations
+  - float_rotation_pm
+  - float_rotation_30m
+  # Polygon short interest (if available for your account)
+  - short_interest_shares
+  - short_percent_float
+  - days_to_cover
+  - short_settlement_date
+gap_threshold_pct: 30.0
+output_csv: output/gapper_data.csv
+sheet_name: Data_commonstock
+years_back: 5
+decimal_separator: comma  # 'dot' or 'comma'
+only_common_stock: true # preloads common stock univers from polygon and filters against that
+include_inactive_common: true # includes inactive common stock tickers from polygon's database
+exclude_non_common_by_suffix: false # excludes non-common stock by ticker suffix (e.g. -WT, -PR, etc) [PROB NOT NEEDED ANYMORE]
+exclude_etf_etn: true # excludes ETFs and ETNs
+min_price: 0.5  # New: Minimum open price to consider (e.g., 5.0 for $5+)
