@@ -582,7 +582,7 @@ def compute_gappers(
     min_price = float(_cfg.get("min_price", 0.0))  # New: Minimum price filter
     only_common_stock = bool(_cfg.get("only_common_stock", True))
     sheet_name_cfg = _cfg.get("sheet_name")
-    sheet_title = _get_sheet_title(service, sheet_id, sheet_name_cfg)
+    sheet_title = sheet_name_cfg if sheet_name_cfg else _get_sheet_title(service, sheet_id, None)
     a1_anchor = _a1_sheet_ref(sheet_title, "A1")
 
     cs_allowlist: Set[str] = set()

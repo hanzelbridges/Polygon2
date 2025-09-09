@@ -54,11 +54,11 @@ metrics:
   - short_settlement_date
 gap_threshold_pct: 30.0
 output_csv: output/gapper_data.csv
-sheet_name: Data_commonstock
-years_back: 5
+sheet_name: Data_CS_10y
+years_back: 9
 decimal_separator: comma  # 'dot' or 'comma'
 only_common_stock: true # preloads common stock univers from polygon and filters against that
 include_inactive_common: true # includes inactive common stock tickers from polygon's database
 exclude_non_common_by_suffix: false # excludes non-common stock by ticker suffix (e.g. -WT, -PR, etc) [PROB NOT NEEDED ANYMORE]
 exclude_etf_etn: true # excludes ETFs and ETNs
-min_price: 0.5  # New: Minimum open price to consider (e.g., 5.0 for $5+)
+min_price: 2  # New: Minimum open price to consider (e.g., 5.0 for $5+)
