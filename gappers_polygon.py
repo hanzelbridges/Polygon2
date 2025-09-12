@@ -19,7 +19,10 @@ except Exception:  # pragma: no cover
 
 
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
+NASDAQ_DATA_LINK_API_KEY = os.getenv("NASDAQ_DATA_LINK_API_KEY") or os.getenv("QUANDL_API_KEY")
+_FINANCIALS_CACHE: Dict[str, Optional[list]] = {}
 _REF_TYPE_CACHE: Dict[str, Optional[str]] = {}
+_REF_SUMMARY_CACHE: Dict[str, Optional[Dict[str, object]]] = {}
 SHORT_INTEREST_ENDPOINTS = (
     "https://api.polygon.io/v3/reference/shorts",
     "https://api.polygon.io/vX/reference/shorts",
@@ -27,6 +30,10 @@ SHORT_INTEREST_ENDPOINTS = (
     # v1 endpoint variant (as in your example):
     "https://api.polygon.io/stocks/v1/short-interest",
 )
+
+FINANCIALS_URL = "https://api.polygon.io/vX/reference/financials"
+SHARADAR_SF1_URL = "https://data.nasdaq.com/api/v3/datatables/SHARADAR/SF1"
+SHARADAR_TICKERS_URL = "https://data.nasdaq.com/api/v3/datatables/SHARADAR/TICKERS"
 
 
 def years_ago(d: date, years: float) -> date:
@@ -95,6 +102,119 @@ def fetch_grouped_for_date(d: date, adjusted: bool = True) -> Optional[List[dict
     return payload.get("results") or []
 
 
+def _mask_key(k: Optional[str]) -> str:
+    if not k:
+        return "<missing>"
+    n = len(k)
+    tail = k[-4:] if n >= 4 else k
+    return f"***{tail} (len={n})"
+
+
+def validate_polygon_key() -> bool:
+    if not POLYGON_API_KEY:
+        sys.stderr.write("[Keys] Polygon: missing. Set env POLYGON_API_KEY or polygon_api_key in config.\n")
+        return False
+    # Use the same urllib helper path to avoid env differences
+    url = f"https://api.polygon.io/v3/reference/tickers/AAPL?apiKey={POLYGON_API_KEY}"
+    data = http_get_json(url)
+    ok = bool(data and isinstance(data, dict) and data.get("status") in ("OK", "ok"))
+    sys.stderr.write(f"[Keys] Polygon: {'OK' if ok else 'WARN'} key={_mask_key(POLYGON_API_KEY)} endpoint=/v3/reference/tickers/AAPL\n")
+    return ok
+
+
+def validate_nasdaq_key() -> bool:
+    if not NASDAQ_DATA_LINK_API_KEY:
+        sys.stderr.write("[Keys] Sharadar/Nasdaq: missing. Set env NASDAQ_DATA_LINK_API_KEY or nasdaq_data_link_api_key in config.\n")
+        return False
+    try:
+        params = {
+            "qopts.columns": "ticker",
+            "qopts.per_page": 1,
+            "api_key": NASDAQ_DATA_LINK_API_KEY,
+        }
+        r = requests.get(SHARADAR_TICKERS_URL, params=params, timeout=10)
+        ok_json = False
+        try:
+            j = r.json()
+            ok_json = isinstance(j, dict) and ("datatable" in j)
+        except Exception:
+            ok_json = False
+        ok = (r.status_code == 200) and ok_json
+        sys.stderr.write(f"[Keys] Sharadar/Nasdaq: {'OK' if ok else 'WARN'} key={_mask_key(NASDAQ_DATA_LINK_API_KEY)} endpoint=/datatables/SHARADAR/TICKERS status={r.status_code}\n")
+        return ok
+    except Exception:
+        sys.stderr.write(f"[Keys] Sharadar/Nasdaq: WARN key={_mask_key(NASDAQ_DATA_LINK_API_KEY)} (exception during validation)\n")
+        return False
+
+
+def fetch_sharadar_pit(ticker: str, target_date: date) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """Point-in-time fundamentals from Sharadar SF1 (Nasdaq Data Link).
+    Returns (shares_outstanding, market_cap, float_shares) as of latest filing (datekey) <= target_date.
+    float_shares may be None if not provided by the dataset.
+    """
+    if not NASDAQ_DATA_LINK_API_KEY:
+        return None, None, None
+    base_common = {
+        "ticker": (ticker or "").upper(),
+        "qopts.per_page": 100,
+        "api_key": NASDAQ_DATA_LINK_API_KEY,
+        "qopts.columns": "ticker,datekey,calendardate,dimension,sharesbas,marketcap,shareswa,shareswadil",
+    }
+    try:
+        def _query(p: dict):
+            resp = requests.get(SHARADAR_SF1_URL, params=p, timeout=30)
+            if not resp.ok:
+                return None, []
+            data = resp.json() or {}
+            table = data.get("datatable") or {}
+            cols = [c.get("name") for c in (table.get("columns") or [])]
+            rows = table.get("data") or []
+            return cols, rows
+
+        # Backtesting: use As Reported dimensions only (ARQ then ARY),
+        # and filter by filing date (datekey) <= target_date.
+        for dim in ("ARQ", "ARY"):
+            base = {**base_common, "dimension": dim}
+            cols, rows = _query({**base, "datekey.lte": target_date.isoformat()})
+            if not rows:
+                continue
+            best = None
+            best_dt = None
+            for r in rows:
+                rec = {cols[i]: r[i] for i in range(min(len(cols), len(r)))}
+                dk = rec.get("datekey") or rec.get("calendardate")
+                try:
+                    dt = datetime.strptime(str(dk)[:10], "%Y-%m-%d").date() if dk else None
+                except Exception:
+                    dt = None
+                if dt and dt <= target_date:
+                    if best_dt is None or dt > best_dt:
+                        best_dt = dt
+                        best = rec
+            if not best and rows:
+                best = {cols[i]: rows[0][i] for i in range(min(len(cols), len(rows[0])))}
+            if best:
+                shares = best.get("sharesbas") or best.get("shareswa") or best.get("shareswadil")
+                mcap = best.get("marketcap")
+                try:
+                    shares_f = float(shares) if shares is not None else None
+                except Exception:
+                    shares_f = None
+                try:
+                    mcap_f = float(mcap) if mcap is not None else None
+                except Exception:
+                    mcap_f = None
+                return shares_f, mcap_f, None
+        return None, None, None
+    except Exception:
+        return None, None, None
+
+
+def fetch_sharadar_company_name(ticker: str) -> Optional[str]:
+    """Deprecated: company_name not included. Returns None."""
+    return None
+
+
 def load_config(config_path: str = "config_gappers.yaml") -> dict:
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
@@ -138,6 +258,35 @@ def get_ticker_type_cached(ticker: str) -> Optional[str]:
     except Exception:
         _REF_TYPE_CACHE[ticker] = None
         return None
+
+
+def get_ticker_summary_cached(ticker: str) -> Tuple[Optional[str], Optional[str], Optional[bool]]:
+    """Fetch and cache Polygon reference summary (name, locale, active) for a ticker."""
+    if not ticker:
+        return None, None, None
+    t = ticker.upper()
+    if t in _REF_SUMMARY_CACHE:
+        d = _REF_SUMMARY_CACHE[t] or {}
+        return d.get("name"), d.get("locale"), d.get("active")
+    if not POLYGON_API_KEY:
+        _REF_SUMMARY_CACHE[t] = None
+        return None, None, None
+    try:
+        safe = urllib.parse.quote(t, safe="")
+        url = f"https://api.polygon.io/v3/reference/tickers/{safe}?apiKey={POLYGON_API_KEY}"
+        resp = requests.get(url, timeout=20)
+        if not resp.ok:
+            _REF_SUMMARY_CACHE[t] = None
+            return None, None, None
+        res = resp.json().get("results", {}) or {}
+        name = res.get("name")
+        locale = res.get("locale")
+        active = res.get("active")
+        _REF_SUMMARY_CACHE[t] = {"name": name, "locale": locale, "active": active}
+        return name, locale, active
+    except Exception:
+        _REF_SUMMARY_CACHE[t] = None
+        return None, None, None
 
 
 def is_etf_or_etn_type(t: Optional[str]) -> bool:
@@ -194,6 +343,56 @@ def fetch_short_interest_asof(ticker: str, target_date: date) -> Tuple[Optional[
         except Exception:
             continue
     return None, None, None, None
+
+
+def prev_weekday(d: date) -> date:
+    cur = d - timedelta(days=1)
+    while cur.weekday() >= 5:
+        cur -= timedelta(days=1)
+    return cur
+
+
+def fetch_earnings_context(ticker: str, target_date: date) -> Dict[str, Optional[object]]:
+    """Approximate earnings tag using Polygon financials filing_date.
+    Flags if a financial 'filing_date' equals target_date or prior weekday.
+    Returns: { earnings_flag: bool, earnings_report_date: str|None }
+    """
+    out = {"earnings_flag": False, "earnings_report_date": None}
+    if not POLYGON_API_KEY:
+        return out
+    prev_d = prev_weekday(target_date)
+    try:
+        global _FINANCIALS_CACHE
+        reports = _FINANCIALS_CACHE.get(ticker)
+        if reports is None:
+            params = {
+                "ticker": ticker,
+                "order": "desc",
+                "limit": 100,
+                "apiKey": POLYGON_API_KEY,
+            }
+            resp = requests.get(FINANCIALS_URL, params=params, timeout=30)
+            if not resp.ok:
+                _FINANCIALS_CACHE[ticker] = []
+                return out
+            data = resp.json() or {}
+            reports = data.get("results") or []
+            _FINANCIALS_CACHE[ticker] = reports
+        for r in reports:
+            fdate = r.get("filing_date") or r.get("filingDate")
+            if not fdate:
+                continue
+            try:
+                fd = datetime.strptime(str(fdate)[:10], "%Y-%m-%d").date()
+            except Exception:
+                continue
+            if fd == target_date or fd == prev_d:
+                out["earnings_flag"] = True
+                out["earnings_report_date"] = fd.isoformat()
+                return out
+    except Exception:
+        return out
+    return out
 
 
 def to_utc(dt_local: datetime, tz_name: str = "America/New_York") -> datetime:
@@ -446,6 +645,8 @@ def compute_gappers(
     os.makedirs(os.path.dirname(out_csv), exist_ok=True)
 
     prev_close_by_ticker: Dict[str, float] = {}
+    if any(k.startswith("sf1_") for k in fieldnames) and not NASDAQ_DATA_LINK_API_KEY:
+        sys.stderr.write("Note: NASDAQ_DATA_LINK_API_KEY not set; sf1_* columns will be blank.\n")
     rows: List[Dict[str, object]] = []
 
     total_days = 0
@@ -507,15 +708,8 @@ def compute_gappers(
                     ]) else {}
                     # Historical indicators prior to gap day
                     ind = compute_indicators_prior_to(d, ticker) if any(k in fieldnames for k in ["atr14","avg_vol_30d","pos_52w","dist_52w_high_pct","gap_vs_atr"]) else {}
-                    # Fundamentals as-of (best effort)
-                    float_val = None
-                    market_cap_val = None
-                    if any(k in fieldnames for k in ["float_proxy","shares_outstanding","market_cap","float_rotation_pm","float_rotation_30m"]):
-                        float_val, market_cap_val = fetch_fundamentals_asof(ticker, d)
                     # Derived metrics
                     gap_vs_atr = (abs(o - prev_c) / ind["atr14"]) if ind.get("atr14") else None
-                    float_rotation_pm = (pm.get("pm_volume", 0) / float_val) if float_val and pm else None
-                    float_rotation_30m = (rth.get("vol_30m", 0) / float_val) if float_val and rth else None
                     # Distances to 200SMA
                     open_to_sma200_pct = None
                     if ind.get("sma200"):
@@ -524,21 +718,33 @@ def compute_gappers(
                     si_shares = si_pct_float = si_days_to_cover = None
                     si_settlement = None
                     if any(k in fieldnames for k in [
-                        "short_interest_shares","short_percent_float","days_to_cover","short_settlement_date"
+                        "short_interest_shares","days_to_cover","short_settlement_date"
                     ]):
                         si_shares, si_pct_float, si_days_to_cover, si_settlement = fetch_short_interest_asof(ticker, d)
-                        # If API does not provide short_percent_float, compute from proxy float
-                        if (si_pct_float is None) and si_shares and float_val and float_val > 0:
-                            try:
-                                si_pct_float = float(si_shares) / float(float_val)
-                            except Exception:
-                                si_pct_float = None
                     # Times of RTH high/low
                     hodlod = compute_rth_hod_lod_times(ticker, d) if any(k in fieldnames for k in ["hod_time","lod_time"]) else {}
+                    # Earnings context
+                    earnings = fetch_earnings_context(ticker, d) if any(k in fieldnames for k in [
+                        "earnings_flag","earnings_report_date"
+                    ]) else {}
+                    # Polygon reference summary (name, active) and type
+                    ref_name = None
+                    ref_active = None
+                    ref_type = None
+                    if any(k in fieldnames for k in ["name","active","type"]):
+                        s_name, _s_locale, s_active = get_ticker_summary_cached(ticker)
+                        ref_name = s_name
+                        ref_active = s_active
+                        ref_type = get_ticker_type_cached(ticker)
+                    # Sharadar PIT fundamentals (deprecated explicit columns removed)
+                    pit_shares = pit_mcap = pit_float = None
 
                     row = {
                         "date": d.isoformat(),
                         "ticker": ticker,
+                        "name": ref_name,
+                        "type": ref_type,
+                        "active": ref_active,
                         "prev_close": round(prev_c, 6),
                         "open": round(o, 6),
                         "gap_pct": round(gap_pct, 6),
@@ -548,10 +754,7 @@ def compute_gappers(
                         "open_to_low_pct": round(open_to_low, 6) if open_to_low is not None else None,
                         "open_to_close_pct": round(open_to_close, 6) if open_to_close is not None else None,
                         "close": round(c, 6),
-                        # Fundamentals (as-of best effort)
-                        "float_proxy": float_val,
-                        "shares_outstanding": float_val,
-                        "market_cap": market_cap_val,
+                        # PIT explicit fields removed; rely on sf1_* columns
                         # Premarket
                         "pm_high": pm.get("pm_high"),
                         "pm_low": pm.get("pm_low"),
@@ -580,17 +783,16 @@ def compute_gappers(
                         "prevclose_to_sma200_pct": ind.get("prevclose_to_sma200_pct"),
                         "open_to_sma200_pct": round(open_to_sma200_pct, 6) if open_to_sma200_pct is not None else None,
                         "gap_vs_atr": round(gap_vs_atr, 6) if gap_vs_atr is not None else None,
-                        # Float rotation
-                        "float_rotation_pm": round(float_rotation_pm, 6) if float_rotation_pm is not None else None,
-                        "float_rotation_30m": round(float_rotation_30m, 6) if float_rotation_30m is not None else None,
                         # Short interest (Polygon, if available)
                         "short_interest_shares": si_shares,
-                        "short_percent_float": round(si_pct_float, 6) if isinstance(si_pct_float, (int, float)) and si_pct_float is not None else si_pct_float,
                         "days_to_cover": si_days_to_cover,
                         "short_settlement_date": si_settlement,
                         # RTH time of high/low
                         "hod_time": hodlod.get("hod_time"),
                         "lod_time": hodlod.get("lod_time"),
+                        # Earnings (if available)
+                        "earnings_flag": earnings.get("earnings_flag"),
+                        "earnings_report_date": earnings.get("earnings_report_date"),
                     }
                     filtered_row = {k: row[k] for k in fieldnames if k in row}
                     rows.append(filtered_row)
@@ -716,13 +918,27 @@ def fetch_fundamentals_asof(ticker: str, target_date: date) -> Tuple[Optional[fl
 
 
 def main(argv: List[str]) -> int:
+    # Load config first so API keys can be sourced from file if desired
+    config = load_config("config_gappers.yaml")
+    # Allow config to supply API keys if env vars are not set
+    global POLYGON_API_KEY, NASDAQ_DATA_LINK_API_KEY
+    POLYGON_API_KEY = os.getenv("POLYGON_API_KEY") or config.get("polygon_api_key") or config.get("POLYGON_API_KEY")
+    NASDAQ_DATA_LINK_API_KEY = (
+        os.getenv("NASDAQ_DATA_LINK_API_KEY")
+        or os.getenv("QUANDL_API_KEY")
+        or config.get("nasdaq_data_link_api_key")
+        or config.get("NASDAQ_DATA_LINK_API_KEY")
+        or config.get("quandl_api_key")
+        or config.get("QUANDL_API_KEY")
+    )
+    # One-time key validation logs
+    validate_polygon_key()
+    validate_nasdaq_key()
     if not POLYGON_API_KEY:
         sys.stderr.write(
-            "Error: POLYGON_API_KEY not set. Export it in your environment.\n"
+            "Error: Polygon API key is missing. Set POLYGON_API_KEY env var or 'polygon_api_key' in config_gappers.yaml.\n"
         )
         return 2
-
-    config = load_config("config_gappers.yaml")
     today = date.today()
     years_back = float(config.get("years_back", 5))
     default_start = years_ago(today, years_back)

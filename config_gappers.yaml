@@ -1,6 +1,13 @@
 dimensions:
   - date
   - ticker
+  - name        # Polygon reference name
+  - type        # Polygon reference type (e.g., CS, ETF, ADRC)
+  - active      # Polygon reference active flag (true/false)
+  
+# Optional: set API keys here (env vars take precedence if set)
+# polygon_api_key: "YOUR_POLYGON_KEY_HERE"
+nasdaq_data_link_api_key: "x58bpRx3nszb5kiGnsjr"
 metrics:
   - prev_close
   - open
@@ -11,11 +18,21 @@ metrics:
   - open_to_low_pct
   - open_to_close_pct
   - close
+  - ah_high # Post-market high price (16:00–20:00 ET) on gap day
+  - ah_close  # Post-market last trade price (16:00–20:00 ET) on gap day
+  # Next-day daily bars (forward days after gap day)
+  - day2_open
+  - day2_high
+  - day2_low
+  - day2_close
+  - day2_volume
+  - day3_open
+  - day3_high
+  - day3_low
+  - day3_close
+  - day3_volume
   - hod_time
   - lod_time
-  - float_proxy  # shares_outstanding proxy (not true free float)
-  - shares_outstanding
-  - market_cap
   # Premarket metrics (as-of gap day)
   - pm_high
   - pm_low
@@ -35,6 +52,11 @@ metrics:
   - vol_5m
   - vol_15m
   - vol_30m
+  # Intraday cross signals (RTH, 1m; entry at next bar open)
+  - ema8_cross_down_time
+  - ema8_cross_down_price
+  - macd_cross_down_time
+  - macd_cross_down_price
   # Historical indicators (computed up to day before gap)
   - atr14
   - avg_vol_30d
@@ -44,18 +66,133 @@ metrics:
   - prevclose_to_sma200_pct
   - open_to_sma200_pct
   - gap_vs_atr
-  # Float rotations
-  - float_rotation_pm
-  - float_rotation_30m
+  # Point-in-time fundamentals (Sharadar / Nasdaq Data Link)
+  # Removed PIT duplicates; use sf1_* columns instead
   # Polygon short interest (if available for your account)
   - short_interest_shares
-  - short_percent_float
   - days_to_cover
   - short_settlement_date
+  # Earnings (from Polygon, if available)
+  - earnings_flag
+  - earnings_report_date
+  # Sharadar SF1 (as-reported) columns appended to output (prefixed with sf1_)
+  # Each comment summarizes Sharadar's description
+  - sf1_workingcapital  # [Metrics] Working capital = AssetsC - LiabilitiesC
+  - sf1_ticker  # [Entity] Ticker symbol identifier; recycled tickers get numeric suffix
+  - sf1_tbvps  # Tangible assets book value per share = Tangibles / SharesWA (adj by ShareFactor)
+  - sf1_taxliabilities  # Tax liabilities outstanding
+  - sf1_taxexp  # Income tax expense (benefit) for continuing operations
+  - sf1_taxassets  # Tax assets and receivables
+  - sf1_tangibles  # Tangible asset value = Assets - Intangibles
+  - sf1_sps  # Sales per share = RevenueUSD / SharesWA (adj by ShareFactor)
+  - sf1_shareswadil  # Weighted average shares diluted
+  - sf1_shareswa  # Weighted average shares basic
+  - sf1_sharesbas  # Shares (basic) outstanding on report cover, split-adjusted
+  - sf1_sharefactor  # Share factor for ADR ratios and multi-class adjustments
+  - sf1_sgna  # Selling, general and administrative expense
+  - sf1_sbcomp  # Share-based compensation (non-cash)
+  - sf1_ros  # Return on sales = EBIT / Revenue
+  - sf1_roic  # Return on invested capital ≈ EBIT / InvCapAvg
+  - sf1_roe  # Return on average equity = NetIncCmn / EquityAvg
+  - sf1_roa  # Return on average assets = NetIncCmn / AssetsAvg
+  - sf1_rnd  # Research and development expense
+  - sf1_revenueusd  # Revenues in USD (converted by FXUSD)
+  - sf1_revenue  # Revenues
+  - sf1_retearn  # Accumulated retained earnings (deficit)
+  - sf1_reportperiod  # Report period end date (YYYY-MM-DD)
+  - sf1_receivables  # Trade and non-trade receivables
+  - sf1_ps1  # Price to sales ratio (Price / SPS)
+  - sf1_ps  # Price/sales (MarketCap / RevenueUSD)
+  - sf1_price  # Adjusted close share price (split-adjusted)
+  - sf1_prefdivis  # Preferred dividends (IS impact)
+  - sf1_ppnenet  # Property, plant & equipment, net
+  - sf1_pe1  # Price to earnings = Price / EPSUSD
+  - sf1_pe  # Price/earnings (MarketCap / NetIncCmnUSD)
+  - sf1_pb  # Price to book value (MarketCap / EquityUSD)
+  - sf1_payoutratio  # Payout ratio = DPS / EPSUSD
+  - sf1_payables  # Trade and non-trade payables
+  - sf1_opinc  # Operating income = GP - OpEx
+  - sf1_opex  # Operating expenses (SG&A + R&D + other; excludes CoR)
+  - sf1_netmargin  # Profit margin = NetIncCmn / Revenue
+  - sf1_netincnci  # Net income to non-controlling interests
+  - sf1_netincdis  # Net income/loss from discontinued operations
+  - sf1_netinccmnusd  # Net income to common (USD)
+  - sf1_netinccmn  # Net income to common stockholders
+  - sf1_netinc  # Net income attributable to parent
+  - sf1_ncfx  # FX effect on cash
+  - sf1_ncfo  # Net cash flow from operations
+  - sf1_ncfinv  # Net cash flow - investment acquisitions/disposals
+  - sf1_ncfi  # Net cash flow from investing
+  - sf1_ncff  # Net cash flow from financing
+  - sf1_ncfdiv  # Dividends and other cash distributions paid
+  - sf1_ncfdebt  # Issuance (repayment) of debt securities
+  - sf1_ncfcommon  # Issuance (purchase) of equity shares
+  - sf1_ncfbus  # Net cash flow - business acquisitions and disposals
+  - sf1_ncf  # Net cash flow / change in cash & equivalents
+  - sf1_marketcap  # Market capitalization = SharesBas * Price * ShareFactor
+  - sf1_liabilitiesnc  # Liabilities non-current
+  - sf1_liabilitiesc  # Current liabilities
+  - sf1_liabilities  # Total liabilities
+  - sf1_lastupdated  # Last updated date (YYYY-MM-DD)
+  - sf1_investmentsnc  # Investments non-current
+  - sf1_investmentsc  # Investments current
+  - sf1_investments  # Investments total
+  - sf1_inventory  # Inventory
+  - sf1_invcapavg  # Invested capital average
+  - sf1_invcap  # Invested capital
+  - sf1_intexp  # Interest expense
+  - sf1_intangibles  # Goodwill and intangible assets
+  - sf1_grossmargin  # Gross margin = GP / Revenue
+  - sf1_gp  # Gross profit = Revenue - CoR
+  - sf1_fxusd  # FX rate to USD (for conversions)
+  - sf1_fiscalperiod  # Fiscal period label (e.g., 2025-Q2, 2024-FY)
+  - sf1_fcfps  # Free cash flow per share = FCF / SharesWA / ShareFactor
+  - sf1_fcf  # Free cash flow = NCFO - CapEx
+  - sf1_evebitda  # EV / EBITDAUSD
+  - sf1_evebit  # EV / EBITUSD
+  - sf1_ev  # Enterprise value ≈ MarketCap + DebtUSD - CashnEqUSD
+  - sf1_equityusd  # Shareholders equity (USD)
+  - sf1_equityavg  # Average equity
+  - sf1_equity  # Shareholders equity attributable to parent
+  - sf1_epsusd  # EPS (USD)
+  - sf1_epsdil  # EPS diluted
+  - sf1_eps  # EPS basic
+  - sf1_ebt  # Earnings before tax = NetInc + TaxExp
+  - sf1_ebitusd  # EBIT (USD)
+  - sf1_ebitdausd  # EBITDA (USD)
+  - sf1_ebitdamargin  # EBITDA margin = EBITDA / Revenue
+  - sf1_ebitda  # EBITDA = EBIT + DepAmor
+  - sf1_ebit  # EBIT = NetInc + TaxExp + IntExp
+  - sf1_dps  # Dividends per basic common share
+  - sf1_divyield  # Dividend yield = TTM DPS / Price
+  - sf1_dimension  # Dimension code (ARQ, ARY, etc.)
+  - sf1_deposits  # Deposit liabilities
+  - sf1_depamor  # Depreciation, amortization & accretion
+  - sf1_deferredrev  # Deferred revenue
+  - sf1_debtusd  # Total debt (USD)
+  - sf1_debtnc  # Debt non-current
+  - sf1_debtc  # Debt current
+  - sf1_debt  # Total debt
+  - sf1_de  # Debt to equity ratio = Liabilities / Equity
+  - sf1_datekey  # Filing date for AR; report period for MR (YYYY-MM-DD)
+  - sf1_currentratio  # Current ratio = AssetsC / LiabilitiesC
+  - sf1_cor  # Cost of revenue
+  - sf1_consolinc  # Consolidated income
+  - sf1_cashnequsd  # Cash and equivalents (USD)
+  - sf1_cashneq  # Cash and equivalents
+  - sf1_capex  # Capital expenditure
+  - sf1_calendardate  # Normalized calendar date for the report period
+  - sf1_bvps  # Book value per share = Equity / SharesWA (adj by ShareFactor)
+  - sf1_assetturnover  # Asset turnover = Revenue / AssetsAvg
+  - sf1_assetsnc  # Assets non-current
+  - sf1_assetsc  # Current assets
+  - sf1_assetsavg  # Average assets
+  - sf1_assets  # Total assets
+  - sf1_accoci  # Accumulated other comprehensive income
 gap_threshold_pct: 30.0
 output_csv: output/gapper_data.csv
-sheet_name: Data_CS_10y
-years_back: 9
+sheet_name: Data_CS_10y_test
+years_back: 10
 decimal_separator: comma  # 'dot' or 'comma'
 only_common_stock: true # preloads common stock univers from polygon and filters against that
 include_inactive_common: true # includes inactive common stock tickers from polygon's database

@@ -1,4 +1,31 @@
-﻿Polygon.io Minimal Client (Python)
+﻿## Setting POLYGON_API_KEY Permanently
+
+To set your Polygon API key permanently on Windows (PowerShell):
+
+1. Open your PowerShell profile for editing:
+	```powershell
+	notepad $PROFILE
+	```
+2. Add this line to the end of the file (replace with your actual key):
+	```powershell
+	$env:POLYGON_API_KEY = "your_actual_api_key_here"
+	```
+3. Save and close Notepad. Restart your terminal or run `. $PROFILE` to reload.
+
+Now, every new PowerShell session will have the API key set automatically.
+
+**Alternative:**
+If you want to use a `.env` file and load it automatically in your Python scripts, you can install the `python-dotenv` package and add this to the top of your script:
+
+```python
+from dotenv import load_dotenv
+load_dotenv()
+```
+Then create a `.env` file in your project root with:
+```
+POLYGON_API_KEY=your_actual_api_key_here
+```
+Polygon.io Minimal Client (Python)
 
 This repo provides a tiny, dependencyâ€‘free Python client and CLI to fetch common data from Polygon.io using only the Python standard library.
 

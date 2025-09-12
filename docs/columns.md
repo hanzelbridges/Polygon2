@@ -9,7 +9,7 @@ Simple explanations of every column the script can output. Unless stated otherwi
 ## Dimensions
 
 - date: Trading date for the row (YYYY-MM-DD).
-- ticker: Stock symbol (may include suffixes like “.WS” for warrants).
+- ticker: Stock symbol (may include suffixes like ".WS" for warrants).
 
 ## Core Daily Prices
 
@@ -58,32 +58,36 @@ Simple explanations of every column the script can output. Unless stated otherwi
 - prevclose_to_sma200_pct: Distance from yesterday’s close to the 200‑day SMA, relative to the SMA.
 - open_to_sma200_pct: Distance from today’s open to the 200‑day SMA, relative to the SMA.
 
-## Fundamentals and Size (point‑in‑time, best effort)
-
-- float_proxy: Proxy for tradable float; equals shares_outstanding from filings/reference (not true free float).
-- shares_outstanding: Total shares outstanding (same value as float_proxy here).
-- market_cap: Market capitalization as of the latest filing before the gap date when available (falls back to current reference if needed).
-
 ## Derived Ratios
 
 - gap_vs_atr: Absolute gap size divided by ATR14; gauges how extreme the gap is versus typical range.
-- float_rotation_pm: Premarket volume divided by float_proxy; rough indication of overnight turnover.
-- float_rotation_30m: First 30 minutes volume divided by float_proxy; early session turnover.
 
 <!-- Ownership/insider/institutional override fields removed: not sourced from Polygon. -->
 
 ## Short Interest (from Polygon, if entitled)
 
-- short_interest_shares: Shares sold short, as of the latest available settlement date on/Before the gap day.
-- short_percent_float: Short interest as a fraction of float (0.12 = 12%).
-  If the API does not provide this value, it is computed as `short_interest_shares / float_proxy`.
+- short_interest_shares: Shares sold short, as of the latest available settlement date on/before the gap day.
 - days_to_cover: Days to cover (short interest divided by average daily volume as defined by the data source).
 - short_settlement_date: Settlement date associated with the short interest values (YYYY-MM-DD).
 
-Notes: Availability depends on your Polygon plan and entitlements. If the API is unavailable or returns no results prior to the gap date, these fields will be blank.
+Notes: Availability depends on your Polygon plan and entitlements. If the API is unavailable or returns no results prior to the gap date, these fields will be blank. The `short_percent_float` field is intentionally omitted because Polygon does not provide it and computing it from present-day float proxies would not be point-in-time accurate. We also omit `float_proxy`, `shares_outstanding`, `market_cap`, and float-rotation metrics because those values are not point-in-time accurate with our current data sources.
+
+## Earnings (approximate; Polygon financials)
+
+- earnings_flag: True if Polygon financials show a filing_date on the gap day or previous weekday.
+- earnings_report_date: The filing_date that triggered the flag (YYYY-MM-DD).
+
+Notes: filing_date is a proxy for the earnings announcement timing and may not perfectly align with press-release times. We do not include EPS estimates/surprises or revenue here.
+
+## Point-in-Time Fundamentals (Sharadar)
+
+- shares_outstanding_pit: Shares outstanding as of the latest filing date on/before the gap day (Sharadar SF1 MRQ, using datekey).
+- market_cap_pit: Market capitalization from the same SF1 record.
+ 
+Notes: For backtesting, we query SF1 via Nasdaq Data Link datatables using As Reported dimensions (ARQ, then ARY) and select the latest filing with datekey <= gap_date. This avoids restatement look-ahead bias.
 
 ## Notes & Conventions
 
-- Point‑in‑time logic: Historical indicators use only data available up to the day before the gap. Fundamentals attempt to use the latest filing with a date ≤ the gap date; if unavailable, current reference values are used.
+- Point‑in‑time logic: Historical indicators use only data available up to the day before the gap.
 - Decimal formatting: If `decimal_separator` in `config_gappers.yaml` is set to `comma`, numeric values will use `,` instead of `.` in the CSV.
-- Data sources: Prices/volumes from Polygon aggregates; fundamentals from Polygon financials/reference.
+- Data sources: Prices/volumes from Polygon aggregates.
