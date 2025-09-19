@@ -8,6 +8,8 @@ from datetime import date, datetime, timedelta, time as dtime, timezone
 from typing import Dict, List, Optional, Tuple, Set
 
 import json
+import http.client
+import ssl
 import requests
 import urllib.request
 import urllib.error
@@ -82,7 +84,7 @@ def http_get_json(url: str, max_retries: int = 5, backoff: float = 1.5) -> Optio
             # Other HTTP errors: don't retry
             sys.stderr.write(f"HTTPError {e.code} for {url}: {e.reason}\n")
             return None
-        except (urllib.error.URLError, TimeoutError) as e:
+        except (urllib.error.URLError, TimeoutError, http.client.RemoteDisconnected, ConnectionResetError, ssl.SSLEOFError) as e:
             sleep_s = backoff ** attempt
             time.sleep(sleep_s)
             attempt += 1
@@ -1611,8 +1613,25 @@ def main(argv: List[str]) -> int:
     today = date.today()
     years_back = float(config.get("years_back", 5))
     default_start = years_ago(today, years_back)
-    start = default_start
-    end = today
+    # Support either years_back or explicit [start_date, end_date] from config
+    use_years_back = bool(config.get("use_years_back", True))
+    if use_years_back:
+        start = default_start
+        end = today
+    else:
+        start = default_start
+        end = today
+        try:
+            cfg_start = config.get("start_date")
+            cfg_end = config.get("end_date")
+            if cfg_start:
+                start = parse_date_arg(str(cfg_start))
+            if cfg_end:
+                end = parse_date_arg(str(cfg_end))
+        except Exception:
+            # Fallback silently to defaults if config dates are malformed
+            start = default_start
+            end = today
     threshold = float(config.get("gap_threshold_pct", 20.0))
     sheet_id = '1BuJoTLMW8h8lYibU2YL6uS6rGk3mQNIV6FS4rn9KP-g'  # Use provided Sheet ID
     fieldnames = config.get("dimensions", []) + config.get("metrics", [])
