@@ -26,6 +26,7 @@ POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
 NASDAQ_DATA_LINK_API_KEY = os.getenv("NASDAQ_DATA_LINK_API_KEY") or os.getenv("QUANDL_API_KEY")
 _FINANCIALS_CACHE: Dict[str, Optional[list]] = {}
 _SHARADAR_NAME_CACHE: Dict[str, Optional[str]] = {}
+_SHARADAR_COUNTRY_CACHE: Dict[str, Optional[str]] = {}
 _REF_TYPE_CACHE: Dict[str, Optional[str]] = {}
 _REF_SUMMARY_CACHE: Dict[str, Optional[Dict[str, object]]] = {}
 _CS_TICKERS_CACHE_ACTIVE: Optional[Set[str]] = None
@@ -485,6 +486,40 @@ def fetch_sharadar_sf1_columns() -> List[str]:
 def fetch_sharadar_company_name(ticker: str) -> Optional[str]:
     """Deprecated: company_name not included. Returns None."""
     return None
+
+
+def fetch_sharadar_country(ticker: str) -> Optional[str]:
+    """Return issuer country from Sharadar TICKERS (cached)."""
+    if not NASDAQ_DATA_LINK_API_KEY or not ticker:
+        return None
+    t = (ticker or '').upper()
+    if t in _SHARADAR_COUNTRY_CACHE:
+        return _SHARADAR_COUNTRY_CACHE[t]
+    params = {
+        "ticker": t,
+        "qopts.columns": "ticker,country",
+        "qopts.per_page": 1,
+        "api_key": NASDAQ_DATA_LINK_API_KEY,
+    }
+    try:
+        resp = requests.get(SHARADAR_TICKERS_URL, params=params, timeout=20)
+        if not resp.ok:
+            _SHARADAR_COUNTRY_CACHE[t] = None
+            return None
+        data = resp.json() or {}
+        table = data.get("datatable") or {}
+        rows = table.get("data") or []
+        cols = [c.get("name") for c in (table.get("columns") or [])]
+        if not rows or not cols:
+            _SHARADAR_COUNTRY_CACHE[t] = None
+            return None
+        rec = {cols[i]: rows[0][i] for i in range(min(len(cols), len(rows[0])))}
+        country = rec.get("country")
+        _SHARADAR_COUNTRY_CACHE[t] = str(country) if country is not None else None
+        return _SHARADAR_COUNTRY_CACHE[t]
+    except Exception:
+        _SHARADAR_COUNTRY_CACHE[t] = None
+        return None
 
 
 def load_config(config_path: str = "config_gappers.yaml") -> dict:
@@ -1347,6 +1382,9 @@ def compute_gappers(
                         row["ema8_cross_down_price"] = x.get("ema8_cross_down_price")
                         row["macd_cross_down_time"] = x.get("macd_cross_down_time")
                         row["macd_cross_down_price"] = x.get("macd_cross_down_price")
+                    # Issuer country (Sharadar TICKERS) as last column
+                    if "issuer_country" in fieldnames:
+                        row["issuer_country"] = fetch_sharadar_country(ticker)
                     filtered_row = {k: row.get(k) for k in fieldnames}
                     rows.append(filtered_row)
                     gappers_this_day += 1

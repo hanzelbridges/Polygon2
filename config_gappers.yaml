@@ -191,10 +191,12 @@ metrics:
   - sf1_accoci  # Accumulated other comprehensive income
   # Final: Unadjusted point-in-time market cap
   - mcap_pit_unadj  # unadjusted_close(gap day) * sf1_sharesbas * sf1_sharefactor
+  # Issuer country from Sharadar TICKERS (appended last)
+  - issuer_country
 gap_threshold_pct: 30.0
 output_csv: output/gapper_data.csv
-sheet_name: Data_CS_10y_test
-years_back: 0.015
+sheet_name: Data_CS_10y_mktcapfix
+years_back: 10
 decimal_separator: comma  # 'dot' or 'comma'
 only_common_stock: true # preloads common stock univers from polygon and filters against that
 include_inactive_common: true # includes inactive common stock tickers from polygon's database
