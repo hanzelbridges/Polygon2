@@ -21,6 +21,7 @@ except Exception:  # pragma: no cover
 # Google Sheets imports
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
 NASDAQ_DATA_LINK_API_KEY = os.getenv("NASDAQ_DATA_LINK_API_KEY") or os.getenv("QUANDL_API_KEY")
@@ -1191,13 +1192,37 @@ def compute_gappers(
             fieldnames = fieldnames + prefixed_sf1_cols
 
     # Write header to Google Sheets
-    body = {'values': [fieldnames]}
-    service.spreadsheets().values().append(
-        spreadsheetId=sheet_id,
-        range=a1_anchor,
-        valueInputOption='RAW',
-        body=body
-    ).execute()
+    def append_with_retry(values: List[List[object]], max_retries: int = 6, base_sleep: float = 0.5):
+        attempt = 0
+        while True:
+            try:
+                body = {'values': values}
+                return service.spreadsheets().values().append(
+                    spreadsheetId=sheet_id,
+                    range=a1_anchor,
+                    valueInputOption='RAW',
+                    insertDataOption='INSERT_ROWS',
+                    body=body
+                ).execute()
+            except HttpError as e:
+                status = getattr(e, 'status_code', None) or getattr(getattr(e, 'resp', None), 'status', None)
+                status = int(status) if status is not None else None
+                # Retry on 5xx or rate limits
+                if status in (500, 502, 503, 504) or 'userRateLimitExceeded' in str(e):
+                    if attempt >= max_retries:
+                        raise
+                    sleep_s = base_sleep * (2 ** attempt)
+                    time.sleep(sleep_s)
+                    attempt += 1
+                    continue
+                # Non-retryable
+                raise
+
+    append_with_retry([fieldnames])
+
+    # Batch size for appends
+    batch_size = int(_cfg.get('sheets_append_batch_size', 200))
+    append_buffer: List[List[object]] = []
 
     for i, d in enumerate(daterange_weekdays(start, end), start=1):
         grouped = fetch_grouped_for_date(d)
@@ -1444,16 +1469,11 @@ def compute_gappers(
                     rows.append(filtered_row)
                     gappers_this_day += 1
 
-                    # Append row to Google Sheets immediately
-                    values = [list(filtered_row.values())]
-                    body = {'values': values}
-                    service.spreadsheets().values().append(
-                        spreadsheetId=sheet_id,
-                        range=a1_anchor,  # Append to the end
-                        valueInputOption='RAW',
-                        insertDataOption='INSERT_ROWS',
-                        body=body
-                    ).execute()
+                    # Buffer the row and append in batches
+                    append_buffer.append(list(filtered_row.values()))
+                    if len(append_buffer) >= batch_size:
+                        append_with_retry(append_buffer)
+                        append_buffer.clear()
 
             prev_close_by_ticker[ticker] = c
 
@@ -1474,6 +1494,11 @@ def compute_gappers(
     total_elapsed = end_time - start_time
     total_str = f"{int(total_elapsed // 3600)}h {int((total_elapsed % 3600) // 60)}m {int(total_elapsed % 60)}s"
     print(f"Progress: 100.0% ({total_days}/{total_days} weekdays completed) - Total gappers: {total_gappers} - Total time: {total_str}")
+
+    # Flush any remaining buffered rows
+    if append_buffer:
+        append_with_retry(append_buffer)
+        append_buffer.clear()
 
     print(f"Wrote {len(rows)} rows to Google Sheets")
     return sheet_id
