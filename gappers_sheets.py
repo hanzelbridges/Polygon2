@@ -130,6 +130,23 @@ def _fetch_ohlcv_for_ticker_on(ticker: str, d: date) -> Optional[Dict[str, float
     return None
 
 
+def _fetch_unadjusted_close_for_ticker_on(ticker: str, d: date) -> Optional[float]:
+    """Return unadjusted daily close for ticker on date d via grouped endpoint with adjusted=false."""
+    try:
+        grouped = fetch_grouped_for_date(d, adjusted=False)
+    except Exception:
+        grouped = None
+    if not grouped:
+        return None
+    for g in grouped:
+        if g.get("T") == ticker:
+            try:
+                return float(g.get("c")) if g.get("c") is not None else None
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def afterhours_window_utc(d: date) -> Tuple[datetime, datetime]:
     """UTC window for US post-market (16:00–20:00 ET) on date d."""
     start_local = datetime.combine(d, dtime(16, 0, 0))
@@ -1296,6 +1313,30 @@ def compute_gappers(
                             pk = f"sf1_{key}"
                             if pk in fieldnames:
                                 row[pk] = val
+                    # Unadjusted PIT market cap (last column)
+                    if "mcap_pit_unadj" in fieldnames:
+                        # Ensure we have SF1 shares and sharefactor
+                        if not sf1_record:
+                            sf1_record = fetch_sharadar_sf1_record(ticker, d)
+                        shares = None
+                        factor = 1.0
+                        try:
+                            shares = float(sf1_record.get("sharesbas")) if sf1_record and sf1_record.get("sharesbas") is not None else None
+                        except Exception:
+                            shares = None
+                        try:
+                            if sf1_record and sf1_record.get("sharefactor") is not None:
+                                factor = float(sf1_record.get("sharefactor"))
+                        except Exception:
+                            factor = 1.0
+                        unadj_close = _fetch_unadjusted_close_for_ticker_on(ticker, d)
+                        if shares is not None and unadj_close is not None:
+                            try:
+                                row["mcap_pit_unadj"] = unadj_close * shares * factor
+                            except Exception:
+                                row["mcap_pit_unadj"] = None
+                        else:
+                            row["mcap_pit_unadj"] = None
                     # Intraday cross signals
                     if any(k in fieldnames for k in [
                         "ema8_cross_down_time","ema8_cross_down_price",
