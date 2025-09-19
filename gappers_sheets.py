@@ -27,6 +27,8 @@ NASDAQ_DATA_LINK_API_KEY = os.getenv("NASDAQ_DATA_LINK_API_KEY") or os.getenv("Q
 _FINANCIALS_CACHE: Dict[str, Optional[list]] = {}
 _SHARADAR_NAME_CACHE: Dict[str, Optional[str]] = {}
 _SHARADAR_COUNTRY_CACHE: Dict[str, Optional[str]] = {}
+_SHARADAR_CSV_COUNTRY: Dict[str, Optional[str]] = {}
+_SHARADAR_CSV_LOADED: bool = False
 _REF_TYPE_CACHE: Dict[str, Optional[str]] = {}
 _REF_SUMMARY_CACHE: Dict[str, Optional[Dict[str, object]]] = {}
 _CS_TICKERS_CACHE_ACTIVE: Optional[Set[str]] = None
@@ -520,6 +522,59 @@ def fetch_sharadar_country(ticker: str) -> Optional[str]:
     except Exception:
         _SHARADAR_COUNTRY_CACHE[t] = None
         return None
+
+
+def _load_sharadar_tickers_csv_mapping() -> None:
+    """Load issuer country/location mapping from a local SHARADAR_TICKERS*.csv if present.
+    Populates _SHARADAR_CSV_COUNTRY with uppercased ticker -> country/location string.
+    """
+    global _SHARADAR_CSV_LOADED
+    if _SHARADAR_CSV_LOADED:
+        return
+    try:
+        candidates = [fn for fn in os.listdir(os.getcwd()) if fn.upper().startswith("SHARADAR_TICKERS") and fn.lower().endswith('.csv')]
+        if not candidates:
+            _SHARADAR_CSV_LOADED = True
+            return
+        # Prefer the most recent by name length/lexicographically
+        candidates.sort(reverse=True)
+        for fn in candidates:
+            try:
+                with open(fn, 'r', encoding='utf-8-sig', newline='') as f:
+                    rdr = csv.DictReader(f)
+                    # Normalize header keys to lower
+                    field_map = {k.lower(): k for k in rdr.fieldnames or []}
+                    tkey = field_map.get('ticker') or field_map.get('symbol')
+                    ctry = field_map.get('country')
+                    loc = field_map.get('location')
+                    if not tkey or (not ctry and not loc):
+                        continue
+                    for row in rdr:
+                        t = (row.get(tkey) or '').upper()
+                        val = None
+                        if ctry and row.get(ctry):
+                            val = str(row.get(ctry)).strip()
+                        elif loc and row.get(loc):
+                            val = str(row.get(loc)).strip()
+                        if t and val is not None:
+                            _SHARADAR_CSV_COUNTRY[t] = val
+                break
+            except Exception:
+                continue
+    finally:
+        _SHARADAR_CSV_LOADED = True
+
+
+def get_issuer_country(ticker: str) -> Optional[str]:
+    """Issuer country from local Sharadar CSV if available; else via API; else None."""
+    if not ticker:
+        return None
+    _load_sharadar_tickers_csv_mapping()
+    t = ticker.upper()
+    if t in _SHARADAR_CSV_COUNTRY:
+        return _SHARADAR_CSV_COUNTRY.get(t)
+    # Fallback to API
+    return fetch_sharadar_country(t)
 
 
 def load_config(config_path: str = "config_gappers.yaml") -> dict:
@@ -1384,7 +1439,7 @@ def compute_gappers(
                         row["macd_cross_down_price"] = x.get("macd_cross_down_price")
                     # Issuer country (Sharadar TICKERS) as last column
                     if "issuer_country" in fieldnames:
-                        row["issuer_country"] = fetch_sharadar_country(ticker)
+                        row["issuer_country"] = get_issuer_country(ticker)
                     filtered_row = {k: row.get(k) for k in fieldnames}
                     rows.append(filtered_row)
                     gappers_this_day += 1
