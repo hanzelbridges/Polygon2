@@ -197,8 +197,9 @@ gap_threshold_pct: 30.0
 output_csv: output/gapper_data.csv
 sheet_name: Data_CS_10y_mktcapfix
 # Date range selection
-use_years_back: false  # if true, uses years_back from today; if false, uses start_date/end_date below
+use_years_back: true  # if true, uses years_back from today; if false, uses start_date/end_date below
 years_back: 10
+minute_years_back: 6  # how many years back to fetch minute bars for (max 5 for free API key)
 start_date: "2015-06-15"   # e.g., "2015-01-01" (used when use_years_back: false)
 end_date: "2025-09-18"     # e.g., "2020-12-31" (used when use_years_back: false)
 decimal_separator: comma  # 'dot' or 'comma'
