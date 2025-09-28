@@ -11,7 +11,7 @@ from typing import Dict, Optional
 import pandas as pd
 
 DEFAULT_EVENTS_CSV = Path("output/40pct_moves.csv")
-DEFAULT_STOP_MULTIPLIER = 1.6  # Matches backtest STOP_LOSS_MULTIPLIER; adjust if dataset differs.
+DEFAULT_STOP_MULTIPLIER = 1.9 # Matches backtest STOP_LOSS_MULTIPLIER; adjust if dataset differs.
 DEFAULT_TAKE_PROFIT = 0.7  # For shorts: 0.7 locks a 30% gain; set to 1.0 to disable.
 DEFAULT_ENTRY_CUTOFF = "14:30"  # Use None to disable time cutoff.
 
@@ -113,10 +113,9 @@ def compute_stats(
     # we approximate the new exit as entry_price * stop_multiplier.
     # Loosening the stop is not inferred from the dataset and keeps the recorded exit.
     stop_mask = pd.Series(False, index=df.index)
-    if "stop_triggered" in df:
+    if stop_multiplier > 0 and "post_entry_high" in df:
         stop_price = df["entry_price"] * stop_multiplier
-        recorded_multiplier = df["exit_price"] / df["entry_price"]
-        stop_mask = df["stop_triggered"] & (stop_multiplier <= recorded_multiplier)
+        stop_mask = df["post_entry_high"].notna() & (df["post_entry_high"] >= stop_price)
         exit_prices = exit_prices.where(~stop_mask, stop_price)
     take_profit_mask = pd.Series(False, index=df.index)
     if 0 < take_profit_multiplier < 1 and "post_entry_low" in df:

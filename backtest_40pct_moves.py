@@ -26,7 +26,6 @@ SESSION_END = dtime(16, 0)
 DEFAULT_THRESHOLD = 0.40
 DEFAULT_WINDOW = 30
 DEFAULT_MONTHS = 1
-STOP_LOSS_MULTIPLIER = 2.0  # Exit short if price doubles from entry.
 
 HARD_CODED_API_KEY = ""  # Set your Polygon API key here to embed it in the script.
 
@@ -294,8 +293,7 @@ def detect_intraday_moves(
             post_entry_high: Optional[float] = None
             post_entry_low: Optional[float] = None
             stop_triggered = False
-            if entry_bar is not None and entry_bar.open > 0:
-                stop_price = entry_bar.open * STOP_LOSS_MULTIPLIER
+            if entry_bar is not None:
                 trailing_high = entry_bar.high
                 trailing_low = entry_bar.low
                 for bar in bars[global_trigger_index + 1 :]:
@@ -303,11 +301,6 @@ def detect_intraday_moves(
                         trailing_high = bar.high
                     if bar.low < trailing_low:
                         trailing_low = bar.low
-                    if bar.high >= stop_price:
-                        exit_dt = bar.dt
-                        exit_price = stop_price
-                        stop_triggered = True
-                        break
                 post_entry_high = trailing_high
                 post_entry_low = trailing_low
             events.append(
