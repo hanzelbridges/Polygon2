@@ -2,4 +2,7 @@ service_account.json
 __pycache__/
 *.pyc
 .env
-
+SHARADAR_TICKERS_2_7ef16c1ffc4112bb028c13f3e3743955.csv
+output/SHARADAR*
+output/*.jsonl
+output/
