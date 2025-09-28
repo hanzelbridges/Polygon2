@@ -11,8 +11,8 @@ from typing import Dict, Optional
 import pandas as pd
 
 DEFAULT_EVENTS_CSV = Path("output/40pct_moves.csv")
-DEFAULT_STOP_MULTIPLIER = 1.9 # Matches backtest STOP_LOSS_MULTIPLIER; adjust if dataset differs.
-DEFAULT_TAKE_PROFIT = 0.7  # For shorts: 0.7 locks a 30% gain; set to 1.0 to disable.
+DEFAULT_STOP_MULTIPLIER = 2.6 # Matches backtest STOP_LOSS_MULTIPLIER; adjust if dataset differs.
+DEFAULT_TAKE_PROFIT = 1.0 # For shorts: 0.7 locks a 30% gain; set to 1.0 to disable.
 DEFAULT_ENTRY_CUTOFF = "14:30"  # Use None to disable time cutoff.
 
 
@@ -62,15 +62,15 @@ def load_events(path: Path) -> pd.DataFrame:
         raise FileNotFoundError(f"Event file not found: {path}")
     df = pd.read_csv(path)
     numeric_cols = [
-        "start_price",
+        "open_price",
+        "window_start_price",
         "trigger_price",
         "entry_price",
         "close_price",
-        "exit_price",
         "post_entry_high",
         "post_entry_low",
-        "max_gain_pct",
-        "close_gain_pct",
+        "window_max_gain_pct",
+        "window_close_gain_pct",
         "window_volume",
     ]
     for col in numeric_cols:
@@ -79,11 +79,9 @@ def load_events(path: Path) -> pd.DataFrame:
     df["entry_time_et"] = pd.to_datetime(df.get("entry_time_et"), format="%H:%M", errors="coerce").dt.time
     df["exit_time_et"] = pd.to_datetime(df.get("exit_time_et"), format="%H:%M", errors="coerce").dt.time
     df["trigger_time_et"] = pd.to_datetime(df.get("trigger_time_et"), format="%H:%M", errors="coerce").dt.time
-    df["start_time_et"] = pd.to_datetime(df.get("start_time_et"), format="%H:%M", errors="coerce").dt.time
+    df["window_start_time_et"] = pd.to_datetime(df.get("window_start_time_et"), format="%H:%M", errors="coerce").dt.time
     df["date"] = pd.to_datetime(df.get("date"), errors="coerce").dt.date
-    if "stop_triggered" in df.columns:
-        df["stop_triggered"] = df["stop_triggered"].astype(str).str.lower().isin(["true", "1", "yes"])
-    df = df.dropna(subset=["entry_price", "exit_price", "entry_time_et"])
+    df = df.dropna(subset=["entry_price", "close_price", "entry_time_et"])
     return df
 
 
@@ -108,10 +106,7 @@ def compute_stats(
     stop_multiplier: float,
     take_profit_multiplier: float,
 ) -> Dict[str, float]:
-    exit_prices = df["exit_price"].copy()
-    # NOTE: When tightening the stop (multiplier <= recorded exit/entry),
-    # we approximate the new exit as entry_price * stop_multiplier.
-    # Loosening the stop is not inferred from the dataset and keeps the recorded exit.
+    exit_prices = df["close_price"].copy()
     stop_mask = pd.Series(False, index=df.index)
     if stop_multiplier > 0 and "post_entry_high" in df:
         stop_price = df["entry_price"] * stop_multiplier

@@ -44,21 +44,19 @@ class MinuteBar:
 class IntradayMove:
     ticker: str
     trade_date: date
+    day_open_price: float
     start_dt: datetime
     trigger_dt: datetime
     entry_dt: Optional[datetime]
-    exit_dt: Optional[datetime]
     duration_minutes: int
-    start_price: float
+    window_start_price: float
     trigger_price: float
     entry_price: Optional[float]
     close_price: float
-    exit_price: float
     post_entry_high: Optional[float]
     post_entry_low: Optional[float]
-    stop_triggered: bool
-    max_gain_pct: float
-    close_gain_pct: float
+    window_max_gain_pct: float
+    window_close_gain_pct: float
     window_volume: float
 
 
@@ -258,6 +256,7 @@ def detect_intraday_moves(
     events: List[IntradayMove] = []
     idx = 0
     session_close_bar = bars[-1]
+    day_open_price = bars[0].open
     while idx <= len(bars) - window:
         window_slice = bars[idx : idx + window]
         start_bar = window_slice[0]
@@ -280,19 +279,16 @@ def detect_intraday_moves(
             duration_minutes = int(round((trigger_bar.dt - start_bar.dt).total_seconds() / 60))
             if duration_minutes < 0:
                 duration_minutes = 0
-            close_gain_pct = ((window_slice[-1].close / start_bar.open) - 1.0) * 100.0
-            max_gain_pct = ((max_high / start_bar.open) - 1.0) * 100.0
+            window_close_gain_pct = ((window_slice[-1].close / start_bar.open) - 1.0) * 100.0
+            window_max_gain_pct = ((max_high / start_bar.open) - 1.0) * 100.0
             entry_bar: Optional[MinuteBar] = None
             global_trigger_index = idx + trigger_offset
             if global_trigger_index + 1 < len(bars):
                 entry_candidate = bars[global_trigger_index + 1]
                 if entry_candidate.open > 0:
                     entry_bar = entry_candidate
-            exit_dt: Optional[datetime] = session_close_bar.dt
-            exit_price = session_close_bar.close
             post_entry_high: Optional[float] = None
             post_entry_low: Optional[float] = None
-            stop_triggered = False
             if entry_bar is not None:
                 trailing_high = entry_bar.high
                 trailing_low = entry_bar.low
@@ -307,21 +303,19 @@ def detect_intraday_moves(
                 IntradayMove(
                     ticker=ticker,
                     trade_date=trade_date,
+                    day_open_price=day_open_price,
                     start_dt=start_bar.dt,
                     trigger_dt=trigger_bar.dt,
                     entry_dt=entry_bar.dt if entry_bar else None,
-                    exit_dt=exit_dt,
                     duration_minutes=duration_minutes,
-                    start_price=start_bar.open,
+                    window_start_price=start_bar.open,
                     trigger_price=trigger_bar.high,
                     entry_price=entry_bar.open if entry_bar else None,
                     close_price=session_close_bar.close,
-                    exit_price=exit_price,
                     post_entry_high=post_entry_high,
                     post_entry_low=post_entry_low,
-                    stop_triggered=stop_triggered,
-                    max_gain_pct=max_gain_pct,
-                    close_gain_pct=close_gain_pct,
+                    window_max_gain_pct=window_max_gain_pct,
+                    window_close_gain_pct=window_close_gain_pct,
                     window_volume=cumulative_volume,
                 )
             )
@@ -336,21 +330,19 @@ def write_results(path: Path, events: Sequence[IntradayMove]) -> None:
     fieldnames = [
         "date",
         "ticker",
-        "start_time_et",
+        "open_price",
+        "window_start_time_et",
         "trigger_time_et",
         "entry_time_et",
-        "exit_time_et",
         "minutes_to_trigger",
-        "start_price",
+        "window_start_price",
         "trigger_price",
         "entry_price",
         "close_price",
-        "exit_price",
         "post_entry_high",
         "post_entry_low",
-        "stop_triggered",
-        "max_gain_pct",
-        "close_gain_pct",
+        "window_max_gain_pct",
+        "window_close_gain_pct",
         "window_volume",
     ]
     with path.open("w", newline="", encoding="utf-8") as fh:
@@ -361,21 +353,19 @@ def write_results(path: Path, events: Sequence[IntradayMove]) -> None:
                 {
                     "date": event.trade_date.isoformat(),
                     "ticker": event.ticker,
-                    "start_time_et": event.start_dt.strftime("%H:%M"),
+                    "open_price": f"{event.day_open_price:.4f}",
+                    "window_start_time_et": event.start_dt.strftime("%H:%M"),
                     "trigger_time_et": event.trigger_dt.strftime("%H:%M"),
                     "entry_time_et": event.entry_dt.strftime("%H:%M") if event.entry_dt else "",
-                    "exit_time_et": event.exit_dt.strftime("%H:%M") if event.exit_dt else "",
                     "minutes_to_trigger": event.duration_minutes,
-                    "start_price": f"{event.start_price:.4f}",
+                    "window_start_price": f"{event.window_start_price:.4f}",
                     "trigger_price": f"{event.trigger_price:.4f}",
                     "entry_price": f"{event.entry_price:.4f}" if event.entry_price is not None else "",
                     "close_price": f"{event.close_price:.4f}",
-                    "exit_price": f"{event.exit_price:.4f}",
                     "post_entry_high": f"{event.post_entry_high:.4f}" if event.post_entry_high is not None else "",
                     "post_entry_low": f"{event.post_entry_low:.4f}" if event.post_entry_low is not None else "",
-                    "stop_triggered": "true" if event.stop_triggered else "false",
-                    "max_gain_pct": f"{event.max_gain_pct:.2f}",
-                    "close_gain_pct": f"{event.close_gain_pct:.2f}",
+                    "window_max_gain_pct": f"{event.window_max_gain_pct:.2f}",
+                    "window_close_gain_pct": f"{event.window_close_gain_pct:.2f}",
                     "window_volume": f"{event.window_volume:.0f}",
                 }
             )
