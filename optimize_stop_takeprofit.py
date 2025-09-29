@@ -14,6 +14,15 @@ import pandas as pd
 import analyze_40pct_results as analysis
 
 
+
+try:
+    from colorama import Fore, Style, init as colorama_init
+    colorama_init()
+    EMPHASIS = Fore.MAGENTA + Style.BRIGHT
+    RESET = Style.RESET_ALL
+except Exception:  # colorama not available or init failed
+    EMPHASIS = "[95;1m"
+    RESET = "[0m"
 def parse_time(value: str | None) -> time | None:
     if value is None:
         return None
@@ -128,12 +137,15 @@ def main(argv: List[str] | None = None) -> int:
             "stop_multiplier": stop,
             "take_profit_multiplier": tp,
             "trades": stats.get("trades"),
-            "hit_rate": stats.get("hit_rate"),
+            "win_rate": stats.get("win_rate"),
             "stop_rate": stats.get("stop_rate"),
             "take_profit_rate": stats.get("take_profit_rate"),
             "avg_return_pct": stats.get("avg_return_pct"),
             "median_return_pct": stats.get("median_return_pct"),
             "std_return_pct": stats.get("std_return_pct"),
+            "avg_win_pct": stats.get("avg_win_pct"),
+            "avg_loss_pct": stats.get("avg_loss_pct"),
+            "risk_reward": stats.get("risk_reward"),
             "expected_value_per_$1": stats.get("expected_value_per_$1"),
         }
         summary_rows.append(row)
@@ -149,11 +161,29 @@ def main(argv: List[str] | None = None) -> int:
         print(f"Saved optimization grid to {args.output}")
 
     results_df.sort_values(by="expected_value_per_$1", ascending=False, inplace=True)
-    print(results_df.head(20).to_string(index=False, float_format=lambda x: f"{x:0.4f}"))
+    print("")
+    output_df = results_df.head(20)
+    if not output_df.empty and EMPHASIS:
+        lines = output_df.to_string(index=False, float_format=lambda x: f"{x:0.4f}").splitlines()
+        for idx, line in enumerate(lines):
+            if idx == 1:
+                print(f"{EMPHASIS}{line}{RESET}")
+            else:
+                print(line)
+    else:
+        print(output_df.to_string(index=False, float_format=lambda x: f"{x:0.4f}"))
 
     if best_row:
         print("\nBest combo:")
-        print(best_row)
+        print("------------")
+        print(f"  stop_multiplier:        {best_row['stop_multiplier']:.2f}")
+        print(f"  take_profit_multiplier: {best_row['take_profit_multiplier']:.2f}")
+        print(f"  win_rate:               {best_row['win_rate']:.2%}")
+        print(f"  avg_win_pct:            {best_row['avg_win_pct']:0.2f}%")
+        print(f"  avg_loss_pct:           {best_row['avg_loss_pct']:0.2f}%")
+        print(f"  risk_reward:            {best_row['risk_reward']:0.2f}")
+        print(f"  expected_value_per_$1:  {best_row['expected_value_per_$1']:0.4f}")
+        print()
     else:
         print("\nUnable to determine best combination (check dataset/filters).")
 

@@ -77,7 +77,6 @@ def load_events(path: Path) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     df["entry_time_et"] = pd.to_datetime(df.get("entry_time_et"), format="%H:%M", errors="coerce").dt.time
-    df["exit_time_et"] = pd.to_datetime(df.get("exit_time_et"), format="%H:%M", errors="coerce").dt.time
     df["trigger_time_et"] = pd.to_datetime(df.get("trigger_time_et"), format="%H:%M", errors="coerce").dt.time
     df["window_start_time_et"] = pd.to_datetime(df.get("window_start_time_et"), format="%H:%M", errors="coerce").dt.time
     df["date"] = pd.to_datetime(df.get("date"), errors="coerce").dt.date
@@ -120,14 +119,24 @@ def compute_stats(
         exit_prices = exit_prices.where(~take_profit_mask, target_price)
     returns = (df["entry_price"] - exit_prices) / df["entry_price"]
     df["holding_return_pct"] = returns * 100.0
+    wins = df["holding_return_pct"][df["holding_return_pct"] > 0]
+    losses = df["holding_return_pct"][df["holding_return_pct"] < 0]
+    avg_win_pct = float(wins.mean()) if len(wins) else float("nan")
+    avg_loss_pct = float(losses.mean()) if len(losses) else float("nan")
+    risk_reward = float("nan")
+    if len(wins) and len(losses):
+        risk_reward = avg_win_pct / abs(avg_loss_pct) if avg_loss_pct != 0 else float("nan")
     stats = {
         "trades": int(len(df)),
-        "hit_rate": float((df["holding_return_pct"] > 0).mean()) if len(df) else float("nan"),
+        "win_rate": float((df["holding_return_pct"] > 0).mean()) if len(df) else float("nan"),
         "stop_rate": float(stop_mask.mean()) if len(df) else float("nan"),
         "take_profit_rate": float(take_profit_mask.mean()) if len(df) else float("nan"),
         "avg_return_pct": float(df["holding_return_pct"].mean()) if len(df) else float("nan"),
         "median_return_pct": float(df["holding_return_pct"].median()) if len(df) else float("nan"),
         "std_return_pct": float(df["holding_return_pct"].std(ddof=1)) if len(df) > 1 else float("nan"),
+        "avg_win_pct": avg_win_pct,
+        "avg_loss_pct": avg_loss_pct,
+        "risk_reward": risk_reward,
         "expected_value_per_$1": float(returns.mean()) if len(df) else float("nan"),
     }
     return stats
@@ -139,7 +148,7 @@ def print_report(df: pd.DataFrame, stop_multiplier: float, take_profit_multiplie
     for key, value in stats.items():
         if key.endswith("pct"):
             print(f"{key:>22}: {value:.2f}%")
-        elif key in ("hit_rate", "stop_rate", "take_profit_rate"):
+        elif key in ("win_rate", "stop_rate", "take_profit_rate"):
             print(f"{key:>22}: {value:.2%}")
         else:
             print(f"{key:>22}: {value}")
