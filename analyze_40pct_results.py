@@ -11,8 +11,8 @@ from typing import Dict, Optional
 import pandas as pd
 
 DEFAULT_EVENTS_CSV = Path("output/40pct_moves.csv")
-DEFAULT_STOP_MULTIPLIER = 2.6 # Matches backtest STOP_LOSS_MULTIPLIER; adjust if dataset differs.
-DEFAULT_TAKE_PROFIT = 1.0 # For shorts: 0.7 locks a 30% gain; set to 1.0 to disable.
+DEFAULT_STOP_MULTIPLIER = 1.6 # Matches backtest STOP_LOSS_MULTIPLIER; adjust if dataset differs.
+DEFAULT_TAKE_PROFIT = 0.7 # For shorts: 0.7 locks a 30% gain; set to 1.0 to disable.
 DEFAULT_ENTRY_CUTOFF = "14:30"  # Use None to disable time cutoff.
 
 

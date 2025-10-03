@@ -21,13 +21,14 @@ except ImportError:  # pragma: no cover
 from src.polygon_client import PolygonError, api_get
 
 EASTERN_TZ_NAME = "America/New_York"
-SESSION_START = dtime(9, 30)
+SESSION_START = dtime(4, 00)
 SESSION_END = dtime(16, 0)
 DEFAULT_THRESHOLD = 0.40
 DEFAULT_WINDOW = 30
 DEFAULT_MONTHS = 1
+DEFAULT_OUTPUT_PATH = Path("output/40pct_moves_incl_pm.csv")
 
-HARD_CODED_API_KEY = ""  # Set your Polygon API key here to embed it in the script.
+HARD_CODED_API_KEY = "CEHW_iOpbogk0Dcjdh3bwXQvHMjzdMkP"  # Set your Polygon API key here to embed it in the script.
 
 
 @dataclass
@@ -141,7 +142,7 @@ def get_eastern_tz() -> timezone:
     return timezone(timedelta(hours=-5))
 
 
-def normalize_bars(raw_bars: Sequence[Dict[str, object]], include_premarket: bool) -> List[MinuteBar]:
+def normalize_bars(raw_bars: Sequence[Dict[str, object]]) -> List[MinuteBar]:
     tz = get_eastern_tz()
     normalized: List[MinuteBar] = []
     for item in raw_bars:
@@ -152,7 +153,7 @@ def normalize_bars(raw_bars: Sequence[Dict[str, object]], include_premarket: boo
             continue
         dt_local = dt_utc.astimezone(tz)
         bar_time = dt_local.time()
-        if not include_premarket and (bar_time < SESSION_START or bar_time > SESSION_END):
+        if bar_time < SESSION_START or bar_time > SESSION_END:
             continue
         try:
             bar = MinuteBar(
@@ -394,11 +395,6 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Window size in bars (default: 30).",
     )
     parser.add_argument(
-        "--include-premarket",
-        action="store_true",
-        help="Include 04:00-09:30 ET data when evaluating windows.",
-    )
-    parser.add_argument(
         "--no-common-filter",
         action="store_true",
         help="Process all tickers without restricting to common stock.",
@@ -416,7 +412,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("output/40pct_moves.csv"),
+        default=DEFAULT_OUTPUT_PATH,
         help="CSV destination for the detected moves.",
     )
     return parser.parse_args(argv)
@@ -471,7 +467,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             except PolygonError as exc:
                 log(f"    {ticker}: failed to fetch minute bars ({exc})")
                 continue
-            session_bars = normalize_bars(raw_bars, include_premarket=args.include_premarket)
+            session_bars = normalize_bars(raw_bars)
             if not session_bars:
                 continue
             events = detect_intraday_moves(
