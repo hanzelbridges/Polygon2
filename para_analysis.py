@@ -10,10 +10,10 @@ from typing import Dict, Optional
 
 import pandas as pd
 
-DEFAULT_EVENTS_CSV = Path("output/40pct_moves.csv")
-DEFAULT_STOP_MULTIPLIER = 1.6 # Matches backtest STOP_LOSS_MULTIPLIER; adjust if dataset differs.
-DEFAULT_TAKE_PROFIT = 0.7 # For shorts: 0.7 locks a 30% gain; set to 1.0 to disable.
-DEFAULT_ENTRY_CUTOFF = "14:30"  # Use None to disable time cutoff.
+DEFAULT_EVENTS_CSV = Path("output/50pct_moves_incl_pm_3y.csv")
+DEFAULT_STOP_MULTIPLIER = 2.45 # Matches backtest STOP_LOSS_MULTIPLIER; adjust if dataset differs.
+DEFAULT_TAKE_PROFIT = 1.0 # For shorts: 0.7 locks a 30% gain; set to 1.0 to disable.
+DEFAULT_ENTRY_CUTOFF = "09:29"  # Use None to disable time cutoff.
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
@@ -22,7 +22,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--events",
         type=Path,
         default=DEFAULT_EVENTS_CSV,
-        help="CSV exported by backtest_40pct_moves.py (default: output/40pct_moves.csv).",
+        help="CSV exported by backtest_40pct_moves.py (default: output/40pct_moves_incl_pm.csv).",
     )
     parser.add_argument(
         "--entry-cutoff",

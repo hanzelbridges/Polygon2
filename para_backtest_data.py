@@ -23,10 +23,10 @@ from src.polygon_client import PolygonError, api_get
 EASTERN_TZ_NAME = "America/New_York"
 SESSION_START = dtime(4, 00)
 SESSION_END = dtime(16, 0)
-DEFAULT_THRESHOLD = 0.40
+DEFAULT_THRESHOLD = 1.0
 DEFAULT_WINDOW = 30
-DEFAULT_MONTHS = 1
-DEFAULT_OUTPUT_PATH = Path("output/40pct_moves_incl_pm.csv")
+DEFAULT_MONTHS = 37
+DEFAULT_OUTPUT_PATH = Path("output/100pct_moves_incl_pm_3y.csv")
 
 HARD_CODED_API_KEY = "CEHW_iOpbogk0Dcjdh3bwXQvHMjzdMkP"  # Set your Polygon API key here to embed it in the script.
 

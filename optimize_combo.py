@@ -14,10 +14,19 @@ import pandas as pd
 # ===== User Config =====
 # Adjust these defaults when running directly (CLI flags still override them).
 # Set both min and max equal to lock a range to a single value; keep step positive.
-DEFAULT_STOP_RANGE = (2.40, 3.0, 0.05)   # stop sweep (min, max, step)
-DEFAULT_TP_RANGE = (0.25, 0.40, 0.05)    # take-profit sweep (min, max, step)
-DEFAULT_ENTRY_CUTOFF_START = '09:30'    # earliest entry time considered
-DEFAULT_ENTRY_CUTOFF_END = '16:00'      # latest entry time considered
+DEFAULT_EVENTS_CSV = Path('output/100pct_moves_incl_pm_3y.csv')
+ENABLE_STOP_SWEEP = True
+ENABLE_TP_SWEEP = True
+ENABLE_CUTOFF_SWEEP = True
+
+FIXED_STOP_MULTIPLIER = 1.60
+FIXED_TAKE_PROFIT_MULTIPLIER = 0.70
+FIXED_ENTRY_CUTOFF = '16:00'
+
+DEFAULT_STOP_RANGE = (1.40, 3.0, 0.10)   # stop sweep (min, max, step)
+DEFAULT_TP_RANGE = (0.30, 1.00, 0.05)    # take-profit sweep (min, max, step)
+DEFAULT_ENTRY_CUTOFF_START = '04:00'    # earliest entry time considered
+DEFAULT_ENTRY_CUTOFF_END = '09:30'      # latest entry time considered
 DEFAULT_CUTOFF_STEP_MINUTES = 30        # increment between entry cut-offs (minutes)
 DEFAULT_CAPITAL_PER_TRADE = 5000.0      # dollars risked per trade when sizing total P/L
 DEFAULT_OPTIMIZE_BY = 'total_pl'        # choose 'total_pl' or 'ev_pct'
@@ -28,7 +37,7 @@ DEFAULT_REQUIRE_ENTRY_AFTER_START = True  # True to drop trades before the cutof
 
 
 
-import analyze_40pct_results as analysis
+import para_analysis as analysis
 try:
     from colorama import Fore, Style, init as colorama_init
 
@@ -124,8 +133,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--events",
         type=Path,
-        default=analysis.DEFAULT_EVENTS_CSV,
-        help="Path to events CSV (default: output/40pct_moves.csv).",
+        default=DEFAULT_EVENTS_CSV,
+        help="Path to events CSV (default: output/40pct_moves_incl_pm_3y.csv).",
     )
     parser.add_argument(
         "--min-volume",
@@ -247,10 +256,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         if df.empty:
             print("No trades remain after enforcing entry lower bound; nothing to optimize.")
             return 0
-    cutoff_values = generate_cutoff_times(cutoff_start, cutoff_end, args.cutoff_step_minutes)
+    if ENABLE_CUTOFF_SWEEP:
+        cutoff_values = generate_cutoff_times(cutoff_start, cutoff_end, args.cutoff_step_minutes)
+    else:
+        fixed_cutoff_val = FIXED_ENTRY_CUTOFF or args.cutoff_end
+        if isinstance(fixed_cutoff_val, time):
+            fixed_cutoff = fixed_cutoff_val
+        else:
+            fixed_cutoff = parse_time_arg(str(fixed_cutoff_val), "FIXED_ENTRY_CUTOFF")
+        cutoff_values = [fixed_cutoff]
 
-    stop_values = frange(args.stop_min, args.stop_max, args.stop_step)
-    tp_values = frange(args.tp_min, args.tp_max, args.tp_step)
+    if ENABLE_STOP_SWEEP:
+        stop_values = frange(args.stop_min, args.stop_max, args.stop_step)
+    else:
+        fallback_stop = FIXED_STOP_MULTIPLIER if FIXED_STOP_MULTIPLIER is not None else args.stop_min
+        stop_values = [float(fallback_stop)]
+
+    if ENABLE_TP_SWEEP:
+        tp_values = frange(args.tp_min, args.tp_max, args.tp_step)
+    else:
+        fallback_tp = FIXED_TAKE_PROFIT_MULTIPLIER if FIXED_TAKE_PROFIT_MULTIPLIER is not None else args.tp_min
+        tp_values = [float(fallback_tp)]
 
     if not stop_values or not tp_values or not cutoff_values:
         print("Parameter sweep produced no combinations; adjust the ranges.")
@@ -289,6 +315,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             total_pl = 0.0
         expected_value_pct = expectancy * 100.0 if expectancy_valid else float("nan")
+
+        if trades == 0:
+            if idx % progress_step == 0 or idx == total_combos:
+                print(f"  Processed {idx:,}/{total_combos:,} combinations", flush=True)
+            continue
 
         if expected_value_pct < min_ev_pct:
             if idx % progress_step == 0 or idx == total_combos:

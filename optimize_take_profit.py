@@ -10,7 +10,7 @@ from typing import List
 
 import pandas as pd
 
-import analyze_40pct_results as analysis
+import para_analysis as analysis
 
 
 try:
@@ -37,7 +37,7 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         "--events",
         type=Path,
         default=analysis.DEFAULT_EVENTS_CSV,
-        help="Path to events CSV (default: output/40pct_moves.csv).",
+        help="Path to events CSV (default: output/40pct_moves_incl_pm.csv).",
     )
     parser.add_argument(
         "--entry-cutoff",
